@@ -1,0 +1,10 @@
+node_modules/
+.env
+.env.local
+*.log
+.DS_Store
+dist/
+coverage/
+
+# Live feed snapshot (updated every 1s while the WebSocket is connected)
+live-feed/

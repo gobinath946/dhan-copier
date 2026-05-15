@@ -1,0 +1,83 @@
+const mongoose = require('mongoose');
+
+const ScalpingTradeSchema = new mongoose.Schema(
+  {
+    sessionId: { type: mongoose.Schema.Types.ObjectId, ref: 'ScalpingSession', index: true, required: true },
+    signal: { type: String, enum: ['BUY_CE', 'BUY_PE'], required: true },
+    strike: { type: Number, required: true },
+    optionSymbol: { type: String },
+    expiry: { type: Number },
+    lotSize: { type: Number, required: true },
+    quantity: { type: Number, required: true },
+    entryPrice: { type: Number, required: true },
+    currentPrice: { type: Number, default: 0 },
+    exitPrice: { type: Number },
+    sl: { type: Number },
+    target: { type: Number },
+    aiConfidence: { type: Number },
+    entryReason: { type: String },
+    exitReason: { type: String },
+    marketRegime: { type: String },
+    buildUpType: { type: String },
+    vwapState: { type: String },
+    oiDirection: { type: String },
+    spotPriceAtEntry: { type: Number },
+    spotPriceAtExit: { type: Number },
+    // Strike selection fields
+    strikeSelectionRationale: { type: String },
+    strikeSelectionConfidence: { type: Number },
+    alternativeStrike: { type: Number },
+    expectedHoldDuration: { type: String },
+    // Trade type: SCALP (fast, small target) or SWING (hold longer, bigger target)
+    tradeType: { type: String, enum: ['SCALP', 'SWING'], default: 'SCALP' },
+    // Per-trade AI overrides (set at entry by entryEngine)
+    maxHoldSeconds: { type: Number, default: 180 },
+    aiEntryDecision: { type: mongoose.Schema.Types.Mixed },
+    hasReachedTarget: { type: Boolean, default: false },
+    maxPriceReached: { type: Number, default: 0 },
+    // NIFTY Futures confirmation fields
+    futuresConfirmed: { type: Boolean, default: false },
+    futuresDirection: { type: String },
+    futuresPremium: { type: Number },
+    // Live feed connection fields
+    optionSecurityId: { type: Number }, // Dhan security ID for direct WebSocket access
+    liveFeedConnected: { type: Boolean, default: false },
+    lastPriceUpdate: { type: Date },
+    priceUpdateSource: { type: String }, // 'live_feed', 'option_chain', 'atm_fallback'
+    // Brokerage calculation fields
+    brokerageEnabled: { type: Boolean, default: false },
+    grossPnL: { type: Number },
+    brokerageCharges: { type: Number },
+    brokerageBreakdown: {
+      brokerage: { type: Number },
+      stt: { type: Number },
+      exchangeCharges: { type: Number },
+      gst: { type: Number },
+      sebiCharges: { type: Number },
+      stampDuty: { type: Number },
+    },
+    status: {
+      type: String,
+      enum: ['open', 'closed', 'rejected'],
+      default: 'open',
+      index: true,
+    },
+    result: { type: String, enum: ['WIN', 'LOSS', 'BREAKEVEN', null], default: null },
+    pnl: { type: Number, default: 0 }, // Net P&L (after brokerage if enabled)
+    pnlPct: { type: Number, default: 0 },
+    openedAt: { type: Date, default: Date.now },
+    closedAt: { type: Date },
+    monitorTicks: { type: Number, default: 0 },
+    aiSnapshots: [
+      {
+        at: Date,
+        confidence: Number,
+        action: String,
+        rationale: String,
+      },
+    ],
+  },
+  { timestamps: true }
+);
+
+module.exports = mongoose.model('ScalpingTrade', ScalpingTradeSchema);

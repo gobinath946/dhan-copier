@@ -1,0 +1,111 @@
+const mongoose = require('mongoose');
+
+const ScalpingSessionSchema = new mongoose.Schema(
+  {
+    status: {
+      type: String,
+      enum: ['running', 'stopped', 'finished', 'error'],
+      default: 'running',
+      index: true,
+    },
+    aiModel: { type: String, default: 'gpt-4o-mini' },
+    settings: {
+      capital: { type: Number, required: true },
+      maxCapitalUsagePct: { type: Number, default: 30 },  // REDUCED from 50 - more conservative
+      riskPerTradePct: { type: Number, default: 1 },
+      maxDailyLossPct: { type: Number, default: 3 },
+      
+      // ── INSTITUTIONAL THRESHOLDS ─────────────────────────────────────────
+      minConfidence: { type: Number, default: 8 },        // RAISED from 7 - institutional standard
+      minBreakoutProb: { type: Number, default: 0.7 },    // RAISED from 0.6 - higher probability required
+      minTrendStrength: { type: Number, default: 0.3 },   // RAISED from 6 - stronger trends only
+      minRR: { type: Number, default: 2.0 },              // RAISED from 1.5 - enforce 1:2 minimum
+      
+      lotSize: { type: Number, default: 65 },
+
+      // ── LOT MANAGEMENT ──────────────────────────────────────────────────
+      minLots: { type: Number, default: 1 },
+      maxLots: { type: Number, default: 3 },              // KEPT at 3 - reasonable maximum
+
+      // ── ANTI-OVERTRADING ────────────────────────────────────────────────
+      maxConcurrentTrades: { type: Number, default: 2 },  // REDUCED from 1 to 2 - allow some diversification
+      cooldownSec: { type: Number, default: 120 },        // INCREASED from 30 - prevent overtrading
+
+      // ── IMPROVED RISK MANAGEMENT ────────────────────────────────────────
+      targetPoints: { type: Number, default: 15 },        // INCREASED from 5 - realistic targets
+      slPoints: { type: Number, default: 10 },            // KEPT at 10 - proper 1:1.5 RR
+      maxHoldTimeSeconds: { type: Number, default: 180 }, // REDUCED from 300 - faster exits
+
+      // ── SWING SETTINGS ───────────────────────────────────────────────────
+      enableSwing: { type: Boolean, default: false },     // DISABLED - focus on scalping first
+      swingMinPoints: { type: Number, default: 40 },
+      swingMaxHoldMinutes: { type: Number, default: 15 },
+
+      // ── MASTER ALGORITHM (INSTITUTIONAL GRADE) ───────────────────────────
+      masterMinScore: { type: Number, default: 70 },      // RAISED from 50 - much higher bar
+      masterMinConfidence: { type: Number, default: 8 },  // RAISED from 5 - high confidence required
+      masterMinAgreement: { type: Number, default: 10 },  // RAISED from 7 - more algorithms must agree
+      minDirectionSpread: { type: Number, default: 5 },   // RAISED from 2 - clear directional bias
+      ensembleMinVotes: { type: Number, default: 3 },     // RAISED from 2 - more consensus required
+
+      // ── MARKET REGIME FILTERS (NEW) ──────────────────────────────────────
+      minVolatility: { type: Number, default: 0.3 },      // NEW - minimum volatility for entry
+      minMarketActivity: { type: Number, default: 0.2 },  // NEW - minimum activity level
+      blockQuietMarket: { type: Boolean, default: true }, // NEW - block quiet markets
+      blockRangingMarket: { type: Boolean, default: true }, // NEW - block ranging markets
+      minRegimeConfidence: { type: Number, default: 6 },  // NEW - regime confidence threshold
+
+      // ── CONFIRMATION REQUIREMENTS (NEW) ──────────────────────────────────
+      minConfirmations: { type: Number, default: 8 },     // NEW - 8+ confirmations required
+      minConfirmationScore: { type: Number, default: 10 }, // NEW - minimum confirmation score
+      requireHTFAlignment: { type: Boolean, default: true }, // NEW - require higher timeframe alignment
+      requireVWAPConfirmation: { type: Boolean, default: true }, // NEW - require VWAP confirmation
+      requireFuturesConfirmation: { type: Boolean, default: true }, // NEW - require futures confirmation
+
+      // ── FEATURE FLAGS ────────────────────────────────────────────────────
+      enableTrailingSL: { type: Boolean, default: true },
+      enableDynamicExit: { type: Boolean, default: true },
+      enableAIRevalidation: { type: Boolean, default: true },
+      enableBrokerageCalculation: { type: Boolean, default: false },
+      enableFuturesConfirmation: { type: Boolean, default: true }, // ENABLED - futures are critical
+      useMasterSignalWhenNeutral: { type: Boolean, default: false }, // DISABLED - wait for clear signals
+
+      // ── STRATEGY ─────────────────────────────────────────────────────────
+      strategyMode: { type: String, default: 'Institutional Multi-Factor' }, // UPDATED name
+      executionMode: { type: String, enum: ['simulation', 'live'], default: 'simulation' },
+
+      // ── FILTERS (ALL ENABLED) ────────────────────────────────────────────
+      filters: {
+        vwap: { type: Boolean, default: true },
+        oi: { type: Boolean, default: true },
+        regime: { type: Boolean, default: true },
+        liquiditySweep: { type: Boolean, default: true },
+        volumeSpike: { type: Boolean, default: true },
+        bankNifty: { type: Boolean, default: true },
+        volatility: { type: Boolean, default: true },
+        gamma: { type: Boolean, default: true },          // ENABLED - important for options
+        maxPain: { type: Boolean, default: true },
+        buildUp: { type: Boolean, default: true },
+        htfAlignment: { type: Boolean, default: true },   // NEW - higher timeframe filter
+        dataQuality: { type: Boolean, default: true },    // NEW - data quality check
+        apiHealth: { type: Boolean, default: true },      // NEW - API health check
+      },
+    },
+    startedAt: { type: Date, default: Date.now },
+    endedAt: { type: Date },
+    initialCapital: { type: Number, required: true },
+    currentCapital: { type: Number, required: true },
+    realizedPnL: { type: Number, default: 0 },
+    totalBrokerageCharges: { type: Number, default: 0 },  // cumulative brokerage across all trades
+    totalTrades: { type: Number, default: 0 },
+    wins: { type: Number, default: 0 },
+    losses: { type: Number, default: 0 },
+    cycleCount: { type: Number, default: 0 },
+    lastCycleAt: { type: Date },
+    lastError: { type: String },
+    notes: { type: String },
+  },
+  { timestamps: true }
+);
+
+module.exports = mongoose.model('ScalpingSession', ScalpingSessionSchema);

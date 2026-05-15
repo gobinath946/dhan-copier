@@ -1,0 +1,159 @@
+{
+  "info": {
+    "name": "Dhan Copy-Trader Backend",
+    "_postman_id": "dhan-copytrader-001",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "All endpoints for the Dhan multi-account copy trading backend."
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000" },
+    { "key": "token", "value": "" },
+    { "key": "accountId", "value": "" },
+    { "key": "executionId", "value": "" },
+    { "key": "resultId", "value": "" },
+    { "key": "mode", "value": "sandbox" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Health",
+      "request": { "method": "GET", "url": "{{baseUrl}}/health", "auth": { "type": "noauth" } }
+    },
+    {
+      "name": "Auth - Login",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/auth/login",
+        "auth": { "type": "noauth" },
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"password\": \"your-app-password\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "  pm.collectionVariables.set('token', pm.response.json().token);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    { "name": "Auth - Me", "request": { "method": "GET", "url": "{{baseUrl}}/api/auth/me" } },
+
+    { "name": "Accounts - List", "request": { "method": "GET", "url": "{{baseUrl}}/api/accounts" } },
+    {
+      "name": "Accounts - Create",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/accounts",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"accountName\": \"Main Sandbox\",\n  \"clientId\": \"1100000000\",\n  \"accessToken\": \"PASTE_DHAN_ACCESS_TOKEN\",\n  \"mode\": \"sandbox\",\n  \"riskMultiplier\": 1,\n  \"enabled\": true\n}"
+        }
+      }
+    },
+    {
+      "name": "Accounts - Update",
+      "request": {
+        "method": "PUT",
+        "url": "{{baseUrl}}/api/accounts/{{accountId}}",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"riskMultiplier\": 2,\n  \"enabled\": true\n}"
+        }
+      }
+    },
+    {
+      "name": "Accounts - Delete",
+      "request": { "method": "DELETE", "url": "{{baseUrl}}/api/accounts/{{accountId}}" }
+    },
+    {
+      "name": "Accounts - Test Connection",
+      "request": { "method": "POST", "url": "{{baseUrl}}/api/accounts/{{accountId}}/test" }
+    },
+
+    {
+      "name": "Trade - Execute",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/trade/execute",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"symbol\": \"RELIANCE\",\n  \"securityId\": \"2885\",\n  \"exchangeSegment\": \"NSE_EQ\",\n  \"side\": \"BUY\",\n  \"quantity\": 1,\n  \"orderType\": \"MARKET\",\n  \"productType\": \"INTRADAY\",\n  \"validity\": \"DAY\",\n  \"triggeredMode\": \"sandbox\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Trade - Modify",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/trade/modify",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"accountId\": \"{{accountId}}\",\n  \"dhanOrderId\": \"123456\",\n  \"patch\": {\n    \"quantity\": 2,\n    \"orderType\": \"LIMIT\",\n    \"price\": 2500\n  }\n}"
+        }
+      }
+    },
+    {
+      "name": "Trade - Cancel",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/trade/cancel",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"accountId\": \"{{accountId}}\",\n  \"dhanOrderId\": \"123456\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Trade - Retry Failed Leg",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/trade/retry-leg",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"resultId\": \"{{resultId}}\"\n}" }
+      }
+    },
+
+    {
+      "name": "Data - Positions",
+      "request": { "method": "GET", "url": "{{baseUrl}}/api/data/positions?mode={{mode}}" }
+    },
+    {
+      "name": "Data - Holdings",
+      "request": { "method": "GET", "url": "{{baseUrl}}/api/data/holdings?mode={{mode}}" }
+    },
+    {
+      "name": "Data - Quote",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/data/quote?mode={{mode}}&exchangeSegment=NSE_EQ&securityId=2885"
+      }
+    },
+    {
+      "name": "Data - Dashboard Stats",
+      "request": { "method": "GET", "url": "{{baseUrl}}/api/data/dashboard-stats?mode={{mode}}" }
+    },
+    {
+      "name": "Data - Logs",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/data/logs?page=1&limit=50"
+      }
+    }
+  ]
+}
