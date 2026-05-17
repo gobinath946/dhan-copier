@@ -29,6 +29,13 @@ const logger = require('../utils/logger');
 
 /**
  * Calculate comprehensive confirmation score for trade entry
+ *
+ * HybridEngine: removed per Req 3.11 — oscillator stacking collapsed; use
+ * `oscillatorContribution()` for the Hybrid_Engine master score. This legacy
+ * function stacks RSI + Stoch + MACD agreement together with 11 other layers
+ * for the pre-Hybrid scalping engine, and is kept INERT-FOR-HYBRID-ENGINE but
+ * functional for legacy callers. The master score does NOT consume it.
+ *
  * @param {Object} payload - Market data payload
  * @param {Object} algorithmOutputs - All algorithm outputs
  * @param {Object} masterDecision - Master algorithm decision
@@ -417,5 +424,62 @@ function getConfirmationReport(confirmationResult) {
 module.exports = {
   calculateConfirmationScore,
   validateConfirmations,
-  getConfirmationReport
+  getConfirmationReport,
+  // HybridEngine: removed per Req 3.11 — oscillator stacking collapsed; use
+  // `oscillatorContribution()` as the single confirmation contributor consumed
+  // by the master score. The legacy multi-layer stacking remains available
+  // through `calculateConfirmationScore` for any non-Hybrid_Engine caller.
+  oscillatorContribution,
 };
+
+// HybridEngine: removed per Req 3.11 — oscillator stacking collapsed; use
+// `oscillatorContribution()` instead of the legacy RSI + Stoch + MACD
+// agreement stack.
+//
+// Returns a single number `c ∈ [0, 1]` — the fraction of the three oscillators
+// that AGREE with the candidate side. The masterScore consumes this as a
+// single confirmation contributor (`c_k` in the weighted-combine formula).
+//
+// Inputs:
+//   - rsi             : current RSI value (0..100)
+//   - rsiThreshold    : centre line for the side-agreement test (default 50)
+//   - stoch           : current %K stochastic value (0..100)
+//   - stochThreshold  : centre line for the side-agreement test (default 50)
+//   - macd            : MACD histogram value (signed); >0 bullish, <0 bearish
+//   - side            : 'LONG' | 'SHORT' candidate side
+//
+// Agreement rules (per side):
+//   LONG  ⇒ rsi >= rsiThreshold, stoch >= stochThreshold, macd > 0
+//   SHORT ⇒ rsi <= rsiThreshold, stoch <= stochThreshold, macd < 0
+//
+// Missing / non-finite inputs do not contribute to agreement (treated as
+// "does not agree"). The result is always in `[0, 1]`.
+function oscillatorContribution(inputs) {
+  const i = inputs && typeof inputs === 'object' ? inputs : {};
+  const isFinite = (v) => typeof v === 'number' && Number.isFinite(v);
+  const side = i.side === 'SHORT' ? 'SHORT' : 'LONG';
+
+  const rsiThreshold = isFinite(i.rsiThreshold) ? i.rsiThreshold : 50;
+  const stochThreshold = isFinite(i.stochThreshold) ? i.stochThreshold : 50;
+
+  let rsiAgree = false;
+  let stochAgree = false;
+  let macdAgree = false;
+
+  if (isFinite(i.rsi)) {
+    rsiAgree = side === 'LONG' ? i.rsi >= rsiThreshold : i.rsi <= rsiThreshold;
+  }
+  if (isFinite(i.stoch)) {
+    stochAgree = side === 'LONG' ? i.stoch >= stochThreshold : i.stoch <= stochThreshold;
+  }
+  if (isFinite(i.macd)) {
+    macdAgree = side === 'LONG' ? i.macd > 0 : i.macd < 0;
+  }
+
+  const agreeCount =
+    (rsiAgree ? 1 : 0) + (stochAgree ? 1 : 0) + (macdAgree ? 1 : 0);
+  const c = agreeCount / 3;
+  // Defensive clamp to [0, 1] — `c` is mathematically already there, but a
+  // stable contract for the masterScore consumer is worth the cycle.
+  return c < 0 ? 0 : c > 1 ? 1 : c;
+}

@@ -35,7 +35,7 @@ const httpsAgent = new https.Agent({ keepAlive: true, keepAliveMsecs: 1000 });
 // ----------------------------------------------------------------------------
 // Retry with backoff
 // ----------------------------------------------------------------------------
-async function retryWithBackoff(fn, maxRetries = 3, initialDelay = 1000) {
+async function retryWithBackoff(fn, maxRetries = 4, initialDelay = 2000) {
   let lastError;
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
@@ -44,15 +44,24 @@ async function retryWithBackoff(fn, maxRetries = 3, initialDelay = 1000) {
       lastError = error;
       // Never retry auth failures
       if (error.response?.status === 401 || error.response?.status === 403) throw error;
+      const status = error.response?.status;
+      const errBody = error.response?.data || {};
+      const isRateLimit =
+        status === 429 ||
+        errBody.errorType === 'Rate_Limit' ||
+        errBody.errorCode === 'DH-904';
       const retryable =
         error.code === 'ECONNRESET' ||
         error.code === 'ETIMEDOUT' ||
         error.code === 'ECONNREFUSED' ||
         error.code === 'ENOTFOUND' ||
-        (error.response?.status >= 500 && error.response?.status < 600);
+        (status >= 500 && status < 600) ||
+        isRateLimit;
       if (!retryable || attempt === maxRetries - 1) throw error;
-      const delay = initialDelay * Math.pow(2, attempt);
-      logger.warn({ attempt: attempt + 1, delay, err: error.message }, '[dhanProd] retrying');
+      // Longer backoff on rate-limit (Dhan throttles for ~3-5s).
+      const baseDelay = isRateLimit ? Math.max(initialDelay, 3000) : initialDelay;
+      const delay = baseDelay * Math.pow(2, attempt);
+      logger.warn({ attempt: attempt + 1, delay, err: error.message, isRateLimit }, '[dhanProd] retrying');
       await new Promise((r) => setTimeout(r, delay));
     }
   }

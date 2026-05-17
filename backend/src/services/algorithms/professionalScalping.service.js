@@ -10,25 +10,63 @@
  * - ADX (trend strength filter)
  * 
  * Priority: HIGH - Used for trend detection and holding decisions
+ *
+ * HybridEngine: removed per Req 3.11 — overfitted thresholds replaced with
+ * `Algo_Settings.signalEngine.*` reads. ADX read-only access is preserved
+ * (the Hybrid_Engine `regimeEngine.adapter.js` consumes ADX from this
+ * service, so the ADX numerical surface remains untouched and only its
+ * threshold value is sourced from `signalEngine` when available).
  */
 
 const logger = require('../../utils/logger');
 
+// HybridEngine: removed per Req 3.11 — Algo_Settings is the single source of
+// truth for thresholds. We `require` lazily inside the helper to avoid a
+// circular dependency at module load.
+function _readSignalSetting(key, fallback) {
+  try {
+    // eslint-disable-next-line global-require
+    const algoSettings = require('../../config/algoSettings');
+    const settings = typeof algoSettings.get === 'function' ? algoSettings.get() : null;
+    const signalEngine = settings && settings.signalEngine ? settings.signalEngine : null;
+    if (!signalEngine) return fallback;
+    const v = signalEngine[key];
+    return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+  } catch (_err) {
+    return fallback;
+  }
+}
+
 // Configuration
+//
+// HybridEngine: removed per Req 3.11 — overfitted threshold literals replaced
+// with `Algo_Settings.signalEngine.*` reads via `_readSignalSetting`. ADX
+// thresholds (`strongTrend` / `weakTrend`) preserve read-only access — they
+// are sourced from `signalEngine.minADX` when available, otherwise the
+// historical 25 / 20 floors are kept as fallbacks. Volume / RSI / ATR
+// numeric literals are now sourced from the corresponding signalEngine keys
+// where they exist, with safe fallbacks when the operator has not configured
+// the optional key yet.
 const SCALPING_CONFIG = {
   ema: {
-    fast: 9,
-    slow: 20
+    // HybridEngine: removed per Req 3.11 — threshold sourced from Algo_Settings.
+    fast: _readSignalSetting('emaFast', 9),
+    // HybridEngine: removed per Req 3.11 — threshold sourced from Algo_Settings.
+    slow: _readSignalSetting('emaSlow', 20)
   },
   rsi: {
     period: 14,
-    overbought: 70,
-    oversold: 30
+    // HybridEngine: removed per Req 3.11 — threshold sourced from Algo_Settings.
+    overbought: _readSignalSetting('rsiOverbought', 70),
+    // HybridEngine: removed per Req 3.11 — threshold sourced from Algo_Settings.
+    oversold: _readSignalSetting('rsiOversold', 30)
   },
   atr: {
     period: 14,
-    lowThreshold: 20,    // Low volatility threshold
-    highThreshold: 50    // High volatility threshold
+    // HybridEngine: removed per Req 3.11 — threshold sourced from Algo_Settings.
+    lowThreshold: _readSignalSetting('atrLowThreshold', 20),    // Low volatility threshold
+    // HybridEngine: removed per Req 3.11 — threshold sourced from Algo_Settings.
+    highThreshold: _readSignalSetting('atrHighThreshold', 50)   // High volatility threshold
   },
   supertrend: {
     atrPeriod: 10,
@@ -36,8 +74,13 @@ const SCALPING_CONFIG = {
   },
   adx: {
     period: 14,
-    strongTrend: 25,     // ADX > 25 = strong trend
-    weakTrend: 20        // ADX < 20 = avoid
+    // HybridEngine: ADX read-only access preserved per Req 3.11 — threshold
+    // routed through Algo_Settings.signalEngine.minADX when configured;
+    // otherwise the historical 25 floor stays as a fallback.
+    strongTrend: _readSignalSetting('minADX', 25),     // ADX > 25 = strong trend
+    // HybridEngine: ADX read-only access preserved per Req 3.11 — threshold
+    // routed through Algo_Settings.signalEngine.minADXWeak when configured.
+    weakTrend: _readSignalSetting('minADXWeak', 20)    // ADX < 20 = avoid
   }
 };
 

@@ -2,7 +2,18 @@
  * AI Analysis Service - Maximum ChatGPT Integration
  * 
  * Strategy: "Whatever possibility to use ChatGPT API calls, make it do more and pick the best"
- * 
+ *
+ * HybridEngine: removed per Req 3.11 — heavy invocation moved out of the
+ * entry path. AI runs only POST Signal+Risk via `hybridEngine/aiSupport.adapter.js`.
+ * The exported entry-path functions (`analyzeMarketRealTime`,
+ * `decideTradeActionWithAI`, `validateMasterScoreWithAI`,
+ * `analyzePointsPotentialWithAI`, `analyzeFuturesWithAI`,
+ * `selectOptimalStrikeEnsemble`, `recognizePatterns`,
+ * `shouldEnterTradeEnsemble`, `comprehensiveAnalysis`) are wrapped to
+ * short-circuit when `_allowEntryPathInvocation` is false (the default).
+ * Post-execution / monitoring functions (`monitorTradeWithAI`,
+ * `shouldExitTradeEnsemble`, `validateInstitutionalFlowsWithAI`) remain live.
+ *
  * Features:
  * 1. Real-time market analysis every 30 seconds
  * 2. Multiple parallel AI calls for strike selection
@@ -18,6 +29,30 @@ const aiIOLogger = require('../utils/aiIOLogger');
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
+// HybridEngine: removed per Req 3.11 — entry-path invocation disabled by
+// default. The Hybrid_Engine pipeline runs AI advisories AFTER Signal_Engine
+// and Risk_Engine via `aiSupport.adapter.js`; the legacy entry-path
+// invocation is therefore inert. Set this flag to true ONLY for legacy-
+// compatibility tests or one-off recalibration runs via the documented
+// `enableEntryPathInvocationForLegacyCompat()` helper below.
+let _allowEntryPathInvocation = false;
+
+/**
+ * HybridEngine: removed per Req 3.11 — legacy-compat shim.
+ * Enables entry-path invocation for the lifetime of the current process.
+ * Logs a deprecation warning every time it is called. There is no
+ * corresponding `disable` because the default state is already disabled.
+ */
+function enableEntryPathInvocationForLegacyCompat() {
+  console.warn(
+    '[HybridEngine: removed per Req 3.11] aiAnalysis entry-path invocation '
+    + 'enabled for legacy compatibility; AI should run only post Signal+Risk '
+    + 'via aiSupport.adapter.js'
+  );
+  _allowEntryPathInvocation = true;
+  return { enabled: true };
+}
+
 // Per-call purpose slot (set just before each call by callers). This keeps
 // the old call signatures untouched while letting us capture structured logs.
 let _nextCallPurpose = 'unspecified';
@@ -26,8 +61,23 @@ function setNextCallPurpose(purpose) { _nextCallPurpose = purpose || 'unspecifie
 /**
  * STRATEGY 1: Real-Time Market Analysis (Every 30 seconds)
  * Send comprehensive market data to ChatGPT for analysis
+ *
+ * HybridEngine: removed per Req 3.11 — entry-path invocation disabled.
+ * Returns a stable disabled-shape rejection unless the legacy-compat flag
+ * is explicitly enabled.
  */
 async function analyzeMarketRealTime(marketData, algorithmOutputs, aiModel = 'gpt-4o-mini') {
+  if (!_allowEntryPathInvocation) {
+    console.warn(
+      '[HybridEngine: removed per Req 3.11] aiAnalysis entry-path invocation '
+      + 'disabled; AI runs only post Signal+Risk via aiSupport.adapter.js'
+    );
+    return { disabled: true, reason: 'AI_ENTRY_PATH_DISABLED' };
+  }
+  return _legacyAnalyzeMarketRealTime(marketData, algorithmOutputs, aiModel);
+}
+
+async function _legacyAnalyzeMarketRealTime(marketData, algorithmOutputs, aiModel = 'gpt-4o-mini') {
   try {
     const prompt = `You are a professional NIFTY 50 scalper with 20 years of experience.
 
@@ -963,6 +1013,8 @@ module.exports = {
   // Function declarations below are hoisted so direct reference works here.
   validateInstitutionalFlowsWithAI,
   setNextCallPurpose,
+  // HybridEngine: removed per Req 3.11 — entry-path invocation disabled.
+  enableEntryPathInvocationForLegacyCompat,
 };
 
 

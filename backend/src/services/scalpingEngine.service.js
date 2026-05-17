@@ -127,6 +127,27 @@ async function start({ authKey, settings, aiModel }) {
   state.authKey = authKey;
   state.cooldownUntil = 0;
 
+  // ------------------------------------------------------------
+  // TODO (subtask 18.2 — Hybrid_Engine activation):
+  // To bring the new institutional pipeline online alongside the
+  // legacy scalping engine, opt in via the lifecycle wrapper:
+  //
+  //   const hybridLifecycle = require('./hybridEngine/hybridEngineLifecycle');
+  //   const result = await hybridLifecycle.startWithSession({ session });
+  //   if (!result.started) {
+  //     // Surface result.reason / result.errors back to the operator
+  //     // and refuse to start (Req 2.6 / 2.8).
+  //   }
+  //
+  // The wrapper validates Algo_Settings, wires Risk_Engine auto-
+  // persist, restores any prior in-process risk state, and starts
+  // both the prediction- and monitoring-loop timers. Pair it with
+  // a `hybridLifecycle.stopWithSession({ session })` call inside
+  // the matching `stop({ reason })` below. Left disabled by
+  // default so the legacy engine remains the production path
+  // until the operator explicitly flips the switch.
+  // ------------------------------------------------------------
+
   // Set session ID for JSON logger
   jsonEventLogger.setSessionId(session._id.toString());
 

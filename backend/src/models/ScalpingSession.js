@@ -104,6 +104,20 @@ const ScalpingSessionSchema = new mongoose.Schema(
     lastCycleAt: { type: Date },
     lastError: { type: String },
     notes: { type: String },
+
+    // ── HYBRID_ENGINE PAYLOAD (Req 12.12 / Req 17.7) ─────────────────────
+    // Free-form `Mixed` bucket reused by the Hybrid_Engine adapters to
+    // persist non-structural state without a per-field schema migration.
+    // Owners (subtask -> key) so callers know not to clobber siblings:
+    //   - 12.8 Risk_Engine -> `payload.riskState = { realizedPnL,
+    //                          consecutiveLosses, killSwitch,
+    //                          sessionStartCapital, killSwitchTrigger,
+    //                          sessionStartedAtIST, lastTradeClosedAt,
+    //                          lastTradeOutcome }`
+    // Because the field is `Mixed`, callers MUST invoke
+    // `session.markModified('payload')` after mutating nested keys so
+    // Mongoose detects the change. See `riskEngine.adapter.persistRiskState`.
+    payload: { type: mongoose.Schema.Types.Mixed, default: {} },
   },
   { timestamps: true }
 );

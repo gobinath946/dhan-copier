@@ -6,7 +6,17 @@
  * Institution-grade OpenAI payload builder + caller for NIFTY options scalping.
 
  *
-
+ * HybridEngine: removed per Req 3.11 — direct order-placement authority
+ * disabled. This module is ADVISORY ONLY. AI advisories must flow into the
+ * Hybrid_Engine pipeline exclusively through `hybridEngine/aiSupport.adapter.js`,
+ * which is the only authorised consumer. The `getEntryDecision` and
+ * `getMonitorDecision` exports below are preserved for backwards compatibility
+ * with legacy callers (e.g. `scalpingEngine.service.js`); they return decision
+ * structures only and MUST NOT be wired to any direct order-placement path
+ * (`orderOrchestration.executeMultiAccountOrder`, `dhanProd.placeOrder`,
+ * `copyTrade.placeOrder`). The `_assertNoDirectExecution` helper at the foot of
+ * this module documents and enforces the boundary at runtime.
+ *
  * ENTRY DECISION
 
  *   - Sends ±4 strikes from CURRENT market price (live context beats opening anchor)
@@ -1458,7 +1468,28 @@ async function callOpenAI(systemPrompt, userPrompt, model = 'gpt-4o-mini') {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+// HybridEngine: removed per Req 3.11 — AI direct order placement disabled.
+// `placeOrderFromAdvisory` is exported as an inert stub so any legacy caller
+// that imports it (or that we haven't yet migrated) hits a structured rejection
+// instead of touching `orderOrchestration` / `dhanProd` / `copyTrade`. AI
+// advisories must flow only through `hybridEngine/aiSupport.adapter.js`.
+function placeOrderFromAdvisory(/* intent */) {
+  console.error(
+    '[HybridEngine: removed per Req 3.11] institutionalAI direct order placement '
+    + 'disabled; AI advisories must flow via aiSupport.adapter.js'
+  );
+  return {
+    placed: false,
+    reason: 'AI_DIRECT_EXECUTION_DISABLED',
+    source: 'institutionalAI',
+  };
+}
 
+// HybridEngine: removed per Req 3.11 — alias kept for any existing callsites
+// that referenced the historical name. Returns the same structured rejection.
+function executeAdvisory(/* intent */) {
+  return placeOrderFromAdvisory();
+}
 
 module.exports = {
 
@@ -1469,6 +1500,10 @@ module.exports = {
   getEntryDecision,
 
   getMonitorDecision,
+
+  // HybridEngine: removed per Req 3.11 — order placement intentionally inert.
+  placeOrderFromAdvisory,
+  executeAdvisory,
 
 };
 

@@ -114,10 +114,36 @@ function ScalpingPage() {
   const [page, setPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(20);
   const [paginationEnabled, setPaginationEnabled] = useState(true);
+  // ── Execution mode + simulation speed (shown next to Start) ──
+  const [executionMode, setExecutionMode] = useState<"live" | "simulation">("live");
+  const [speedMultiplier, setSpeedMultiplier] = useState<number>(10);
+  const [replayDate, setReplayDate] = useState<string>("");
+  const [replayDates, setReplayDates] = useState<string[]>([]);
 
   useEffect(() => {
     if (!isAuthenticated()) navigate({ to: "/login" });
   }, [navigate]);
+
+  // Load replay dates whenever the user switches to simulation mode.
+  useEffect(() => {
+    if (executionMode !== "simulation") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get("/api/scalping/replay-dates");
+        if (cancelled) return;
+        const dates: string[] = res.data?.dates || [];
+        setReplayDates(dates);
+        // Default to oldest available (start of 3-month replay history).
+        if (!replayDate && dates.length > 0) setReplayDate(dates[0]);
+      } catch (err) {
+        console.warn("[scalping] replay-dates fetch failed", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [executionMode, replayDate]);
 
   const statusQuery = useQuery({
     queryKey: ["scalping-status"],
@@ -185,25 +211,71 @@ function ScalpingPage() {
       const authKey = getDhanBypassKey();
       // Auth key is optional - backend will use production token if not provided
       const headers = authKey ? { "X-Dhan-Bypass-Key": authKey } : {};
-      
-      // Backend now manages settings - no need to send from frontend
-      // Settings are loaded from backend/src/config/algoSettings.js
+
+      // Body carries execution mode + speed + replay date so the backend
+      // can route through Hybrid_Engine on either live Dhan feed or
+      // recorded JSONL replay (`live-feed/<date>_NIFTY_50`).
+      const body: Record<string, unknown> = {
+        executionMode,
+      };
+      if (executionMode === "simulation") {
+        body.speedMultiplier = speedMultiplier;
+        if (replayDate) body.replayDate = replayDate;
+      }
+
       const res = await api.post(
         "/api/scalping/start",
-        {}, // Empty body - backend uses its own settings
+        body,
         { headers }
       );
       return res.data;
     },
-    onSuccess: () => {
-      toast.success("Prediction engine started with backend settings");
+    onSuccess: (data) => {
+      const mode = data?.executionMode || executionMode;
+      const tag = mode === "simulation"
+        ? `📼 Simulation @ ${data?.replayDate} × ${data?.speedMultiplier}`
+        : "🚀 Live engine started";
+      toast.success(tag);
+      qc.invalidateQueries({ queryKey: ["scalping-status"] });
+    },
+    onError: (e) => toast.error(apiErrorMessage(e)),
+  });
+
+  // Backtest fallback — when market is closed, the existing Start button
+  // falls through to the Hybrid_Engine simulation path against the most
+  // recently recorded trading day (default: last Friday). Tagged with
+  // simulation:true so no broker contact is ever made.
+  const backtestMut = useMutation({
+    mutationFn: async (date?: string) => {
+      const res = await api.post(
+        "/api/scalping/backtest/start",
+        date ? { date } : {}
+      );
+      return res.data;
+    },
+    onSuccess: (data) => {
+      const replayDate = data?.replayDate ? ` (${data.replayDate})` : "";
+      toast.success(`📼 Backtest started${replayDate} — simulation mode, no broker contact`);
       qc.invalidateQueries({ queryKey: ["scalping-status"] });
     },
     onError: (e) => toast.error(apiErrorMessage(e)),
   });
 
   const stopMut = useMutation({
-    mutationFn: async () => (await api.post("/api/scalping/stop")).data,
+    mutationFn: async () => {
+      // Stop both live engine and backtest driver — whichever is running.
+      // Both endpoints are idempotent so calling each is safe.
+      const results = await Promise.allSettled([
+        api.post("/api/scalping/stop"),
+        api.post("/api/scalping/backtest/stop"),
+      ]);
+      const live = results[0];
+      const back = results[1];
+      return {
+        live: live.status === "fulfilled" ? live.value.data : null,
+        back: back.status === "fulfilled" ? back.value.data : null,
+      };
+    },
     onSuccess: () => {
       toast.success("Engine stopped");
       qc.invalidateQueries({ queryKey: ["scalping-status"] });
@@ -223,18 +295,34 @@ function ScalpingPage() {
   });
 
   const handleStart = async () => {
+    // Simulation mode bypasses market-status check — replay JSONL is
+    // available regardless of clock, and the backend's data_engine
+    // reads from `live-feed/<date>_NIFTY_50/` directly.
+    if (executionMode === "simulation") {
+      startMut.mutate();
+      return;
+    }
     // Backend now manages settings - no need to load from frontend
+    let marketOpen = false;
+    let marketReason = "";
     try {
       const ms = (await api.get("/api/scalping/market-status")).data;
-      if (!ms.open) {
-        toast.error(`Market is not live. ${ms.reason || ""} — try later.`);
-        return;
-      }
+      marketOpen = !!ms.open;
+      marketReason = ms.reason || "";
     } catch {
       toast.error("Could not verify market status");
       return;
     }
-    startMut.mutate(); // No config needed - backend uses its own settings
+
+    if (marketOpen) {
+      startMut.mutate(); // Live mode — Hybrid_Engine on real Dhan feed
+      return;
+    }
+
+    // Market closed → auto-fall-through to backtest (Hybrid_Engine in
+    // simulation mode against last Friday's recorded JSONL).
+    toast.info(`Market closed${marketReason ? `: ${marketReason}` : ""} — running backtest on most recent recorded day`);
+    backtestMut.mutate(undefined);
   };
 
   // ── Derived state ──────────────────────────────────────────────────────────
@@ -322,20 +410,62 @@ function ScalpingPage() {
   ];
 
   // ── Action buttons ─────────────────────────────────────────────────────────
+  // Layout convention: actionButtons[0] is the primary (Start/Stop)
+  // button; the rest render as secondary toolbar entries (right-aligned).
+  // The custom mode/speed/date selector is appended as a secondary
+  // entry rendered as raw JSX (className === '' is the layout's
+  // "render icon directly, no button wrapper" signal).
+  const modeControls = {
+    icon: (
+      <div className="flex items-center gap-2 text-xs">
+        <select
+          className="h-8 rounded border bg-background px-2 text-xs"
+          value={executionMode}
+          onChange={(e) => setExecutionMode(e.target.value as "live" | "simulation")}
+          disabled={running}
+        >
+          <option value="live">Live</option>
+          <option value="simulation">Simulation</option>
+        </select>
+        {executionMode === "simulation" && (
+          <>
+            <select
+              className="h-8 rounded border bg-background px-2 text-xs"
+              value={speedMultiplier}
+              onChange={(e) => setSpeedMultiplier(Number(e.target.value))}
+              disabled={running}
+              title="Speed multiplier (replay clock × N)"
+            >
+              <option value={1}>×1</option>
+              <option value={2}>×2</option>
+              <option value={5}>×5</option>
+              <option value={10}>×10</option>
+              <option value={20}>×20</option>
+              <option value={50}>×50</option>
+            </select>
+            <select
+              className="h-8 rounded border bg-background px-2 text-xs max-w-[140px]"
+              value={replayDate}
+              onChange={(e) => setReplayDate(e.target.value)}
+              disabled={running || replayDates.length === 0}
+              title="Replay start date"
+            >
+              {replayDates.length === 0 && <option value="">No data</option>}
+              {replayDates.map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+          </>
+        )}
+      </div>
+    ),
+    tooltip: "",
+    onClick: () => {},
+    variant: "outline" as const,
+    className: "",
+  };
+
   const actionButtons = [
-    {
-      icon: <Settings className="h-4 w-4" />,
-      tooltip: "Algo Settings",
-      onClick: () => setSettingsOpen(true),
-      variant: "outline" as const,
-    },
-    {
-      icon: <ScrollText className="h-4 w-4" />,
-      tooltip: "View Engine Logs",
-      onClick: () => setLogsOpen(true),
-      variant: "outline" as const,
-      disabled: !session,
-    },
     running
       ? {
           icon: <Square className="h-4 w-4" />,
@@ -353,6 +483,20 @@ function ScalpingPage() {
           className: "bg-primary text-primary-foreground",
           disabled: startMut.isPending,
         },
+    modeControls,
+    {
+      icon: <Settings className="h-4 w-4" />,
+      tooltip: "Algo Settings",
+      onClick: () => setSettingsOpen(true),
+      variant: "outline" as const,
+    },
+    {
+      icon: <ScrollText className="h-4 w-4" />,
+      tooltip: "View Engine Logs",
+      onClick: () => setLogsOpen(true),
+      variant: "outline" as const,
+      disabled: !session,
+    },
   ];
 
   const pageTrades = paginationEnabled

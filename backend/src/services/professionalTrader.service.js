@@ -12,6 +12,12 @@ const dhanBypass = require('./dhanProd.service');
 const logger = require('../utils/logger');
 const aiIOLogger = require('../utils/aiIOLogger');
 const axios = require('axios');
+// HybridEngine: removed per Req 3.11 — parallel regime classification disabled.
+// All regime questions MUST route through `regimeEngine.adapter.js` (the
+// canonical Hybrid_Engine source). The legacy heuristic in
+// `analyzeMarketCharacter` below is short-circuited to return safe-default
+// neutral state without running the parallel classifier.
+const regimeEngineAdapter = require('./hybridEngine/regimeEngine.adapter');
 
 const NIFTY_SECURITY_ID = 13;
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
@@ -144,8 +150,55 @@ function getMarketOpenTime() {
 
 /**
  * Analyze market character and structure
+ *
+ * HybridEngine: removed per Req 3.11 — parallel regime classification disabled.
+ * The legacy implementation classified TRENDING/RANGING/VOLATILE/QUIET locally,
+ * duplicating the work of `regimeEngine.adapter.js`. The function name and
+ * exported shape are preserved for backwards compatibility, but the body now
+ * short-circuits to a safe-default neutral state. All regime questions MUST
+ * route through the Hybrid_Engine adapter via `classifyRegime({ ctx, settings })`.
  */
 async function analyzeMarketCharacter(authKey) {
+  console.warn(
+    '[HybridEngine: removed per Req 3.11] professionalTrader.analyzeMarketCharacter '
+    + 'is deprecated; route regime through regimeEngine.adapter.js'
+  );
+  // Reference the adapter so static analysers / linters see the dependency
+  // and so a future caller can introspect the canonical source from here.
+  void regimeEngineAdapter;
+  // Safe-default neutral regime — never classifies, never blocks, never
+  // produces a directional bias. The session keeps running on whatever
+  // value the caller had before this function was invoked.
+  if (marketSession) {
+    if (!marketSession.marketCharacter) marketSession.marketCharacter = 'QUIET';
+    if (!marketSession.dominantDirection) marketSession.dominantDirection = 'neutral';
+  }
+  return {
+    label: 'QUIET',
+    confidence: 0,
+    tradePermissions: { LONG_SETUP: false, SHORT_SETUP: false, SCALPING: false },
+    positionSizingMultiplier: 0,
+    deprecated: true,
+    reason: 'PARALLEL_REGIME_CLASSIFICATION_DISABLED',
+  };
+}
+
+/**
+ * @deprecated HybridEngine: removed per Req 3.11 — kept for any internal
+ * callsites that may still reference the old heuristic. Returns the
+ * safe-default neutral regime; never runs the legacy classifier.
+ */
+async function _legacyAnalyzeMarketCharacter() {
+  return analyzeMarketCharacter();
+}
+// eslint-disable-next-line no-unused-vars
+void _legacyAnalyzeMarketCharacter;
+
+// HybridEngine: removed per Req 3.11 — original parallel classifier kept
+// inert below the active stub. The function `_disabledLegacyAnalyzer` is
+// retained as an internal record of the original heuristic for audit
+// purposes; it is never invoked by exported functions.
+async function _disabledLegacyAnalyzer(authKey) {
   try {
     // Fetch last 30 minutes of data
     const now = Math.floor(Date.now() / 1000);

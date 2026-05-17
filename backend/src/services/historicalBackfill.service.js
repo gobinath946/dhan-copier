@@ -164,8 +164,8 @@ async function fetchRollingOption({ date, offset, type, expiryFlag, expiryCode }
     toDate:   date,
   };
 
-  // Retry once on ECONNRESET / rate limit
-  for (let attempt = 0; attempt < 3; attempt++) {
+  // Retry up to 3 times on ECONNRESET / rate limit (Dhan DH-904).
+  for (let attempt = 0; attempt < 4; attempt++) {
     try {
       const r = await axios.post(ROLL_URL, payload, {
         headers: getHeaders(),
@@ -175,8 +175,12 @@ async function fetchRollingOption({ date, offset, type, expiryFlag, expiryCode }
       return leg || null;
     } catch (e) {
       const msg = e.response?.data || e.message;
-      if (attempt < 2 && (e.code === 'ECONNRESET' || e.code === 'ETIMEDOUT')) {
-        await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+      const isRateLimit =
+        (msg && (msg.errorType === 'Rate_Limit' || msg.errorCode === 'DH-904'))
+        || e.response?.status === 429;
+      if (attempt < 3 && (e.code === 'ECONNRESET' || e.code === 'ETIMEDOUT' || isRateLimit)) {
+        // Exponential backoff: 2s, 4s, 8s.
+        await new Promise(r => setTimeout(r, 2000 * Math.pow(2, attempt)));
         continue;
       }
       logger.warn({ offset, type, expiryFlag, expiryCode, err: msg }, '[backfill] rollingoption fetch failed');
@@ -192,13 +196,16 @@ async function fetchRollingOption({ date, offset, type, expiryFlag, expiryCode }
  */
 async function fetchAllLegs(date, window, expiryFlag, expiryCode) {
   const legs = [];
-  // Sequential fetch to respect Dhan rate limits — increased to 750ms between calls
-  // since ECONNRESET occurred at 250ms throttle.
+  // Sequential fetch to respect Dhan rate limits.
+  // CALIBRATION: 1500ms throttle between rollingoption calls.
+  // The Dhan free-tier rate limit is roughly 1 request per second
+  // per user; 1500ms gives a safety margin and reduced DH-904
+  // rate-limit errors during the 3-month backfill.
   for (let offset = -window; offset <= window; offset++) {
     for (const type of ['CALL', 'PUT']) {
       const leg = await fetchRollingOption({ date, offset, type, expiryFlag, expiryCode });
       if (leg) legs.push({ offset, type, ...leg });
-      await new Promise(r => setTimeout(r, 750));
+      await new Promise(r => setTimeout(r, 1500));
     }
   }
   return legs;
@@ -449,7 +456,7 @@ async function backfillDay(dateStr, opts = {}) {
  */
 async function backfillRange(days = 7, opts = {}) {
   const { toDate } = opts;
-  const daysCount = Math.max(1, Math.min(30, Number(days) || 7));
+  const daysCount = Math.max(1, Math.min(90, Number(days) || 7));
 
   // Build the list of trading days working backwards from `toDate` (or today)
   const results = [];

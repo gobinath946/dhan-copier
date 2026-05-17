@@ -13,10 +13,33 @@ const dhanBypass = require('../dhanProd.service');
 const NIFTY_SECURITY_ID = 13;
 
 // UT Bot Configuration
+// These defaults match the TradingView "UT Bot Alerts" indicator
+// defaults. They can be overridden at runtime by
+// `setUtBotConfig({ keyValue, atrPeriod })` so calibration via
+// algoSettings.signalEngine.utBot.* takes effect on the next
+// `calculateUTBot` call without a process restart.
 const UT_BOT_CONFIG = {
   keyValue: 1,      // Sensitivity (lower = more sensitive)
   atrPeriod: 10,    // ATR period for trailing stop
 };
+
+/**
+ * Override the UT Bot defaults at runtime. Used by the Signal_Engine
+ * evaluator to hot-load `algoSettings.signalEngine.utBot.*` so an
+ * operator can tune sensitivity / ATR period without restarting the
+ * process. Silently ignores non-finite or out-of-range values.
+ *
+ * @param {{ keyValue?:number, atrPeriod?:number }} cfg
+ */
+function setUtBotConfig(cfg) {
+  if (!cfg || typeof cfg !== 'object') return;
+  if (typeof cfg.keyValue === 'number' && Number.isFinite(cfg.keyValue) && cfg.keyValue > 0) {
+    UT_BOT_CONFIG.keyValue = cfg.keyValue;
+  }
+  if (Number.isInteger(cfg.atrPeriod) && cfg.atrPeriod >= 5 && cfg.atrPeriod <= 50) {
+    UT_BOT_CONFIG.atrPeriod = cfg.atrPeriod;
+  }
+}
 
 /**
  * Analyze multi-timeframe confluence
@@ -654,5 +677,8 @@ function calculateMultiTimeframeScore(mtfData, direction) {
 
 module.exports = {
   analyzeMultiTimeframe,
-  calculateMultiTimeframeScore
+  calculateMultiTimeframeScore,
+  calculateUTBot,
+  analyzeTimeframe,
+  setUtBotConfig,
 };
